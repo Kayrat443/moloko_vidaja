@@ -8,26 +8,26 @@ from datetime import datetime, timedelta
 # Настройка страницы
 st.set_page_config(page_title="MILK SYSTEM", layout="centered")
 
-# ЖЕСТКИЙ СТИЛЬ ДЛЯ ЧИТАЕМОСТИ
+# ЖЕСТКИЙ КОНТРАСТ: Белый фон и ЧЕРНЫЙ текст
 st.markdown("""
     <style>
-    /* Весь текст на странице — черный */
+    /* Фон приложения */
     .stApp { background-color: #ffffff !important; }
-    h1, h2, h3, p, span, label { color: #000000 !important; }
     
-    /* ФИО сотрудника */
+    /* Имя сотрудника */
     .emp-name {
         color: #000000 !important;
         font-size: 32px !important;
-        font-weight: bold !important;
+        font-weight: 900 !important;
         text-align: center;
+        margin-top: 10px;
         margin-bottom: 20px;
     }
     
-    /* МЕТРИКИ (Положено и Остаток) — СТРОГО ЧЕРНЫЕ */
+    /* Метрики (Положено / Остаток) */
     div[data-testid="stMetricValue"] {
         color: #000000 !important;
-        font-size: 44px !important;
+        font-size: 48px !important;
         font-weight: 900 !important;
     }
     div[data-testid="stMetricLabel"] {
@@ -36,19 +36,33 @@ st.markdown("""
         font-weight: bold !important;
     }
     div[data-testid="stMetric"] {
-        border: 2px solid #000000 !important;
-        padding: 15px !important;
+        background-color: #ffffff !important;
+        border: 3px solid #000000 !important;
+        padding: 20px !important;
         border-radius: 10px !important;
     }
 
-    /* Кнопки и ввод */
+    /* Все остальные тексты и метки */
+    p, label, .stMarkdown, h1, h2, h3 {
+        color: #000000 !important;
+        font-weight: bold !important;
+    }
+    
+    /* Кнопки */
     .stButton>button {
         background-color: #000000 !important;
         color: #ffffff !important;
-        font-weight: bold;
-        height: 3.5em;
+        font-weight: bold !important;
+        height: 3.5em !important;
+        font-size: 18px !important;
     }
-    input { color: #000000 !important; border: 1px solid #000000 !important; }
+    
+    /* Поля ввода */
+    input { 
+        color: #000000 !important; 
+        border: 2px solid #000000 !important; 
+        font-weight: bold !important;
+    }
     </style>
     """, unsafe_allow_html=True)
 
@@ -71,7 +85,7 @@ def log_tx(id, name, qty):
 if 'db' not in st.session_state:
     st.session_state.db = load_db()
 
-# --- МЕНЮ (ПЕРЕИМЕНОВАНО) ---
+# Меню
 menu = st.sidebar.radio("НАВИГАЦИЯ", ["ВЫДАЧА", "РЕДАКТОР", "СТАТИСТИКА"])
 
 # --- 1. ВЫДАЧА ---
@@ -90,7 +104,7 @@ if menu == "ВЫДАЧА":
             scanned_id = data
             st.success(f"ID: {scanned_id}")
 
-    user_id = st.text_input("Введите номер вручную:", value=scanned_id if scanned_id else "")
+    user_id = st.text_input("Введите номер:", value=scanned_id if scanned_id else "")
     
     if user_id:
         db = st.session_state.db
@@ -112,13 +126,14 @@ if menu == "ВЫДАЧА":
                     st.session_state.db.at[idx, 'Остаток'] -= val
                     save_db(st.session_state.db)
                     log_tx(row['Табельный_Молоко'], row['Сотрудник'], val)
+                    st.success("ГОТОВО")
                     st.rerun()
             else:
                 st.error("БАЛАНС 0 ЛИТРОВ")
         else:
             st.error("СОТРУДНИК НЕ НАЙДЕН")
 
-# --- 2. РЕДАКТОР (СТАРАЯ УДОБНАЯ АДМИНКА) ---
+# --- 2. РЕДАКТОР ---
 elif menu == "РЕДАКТОР":
     st.title("⚙️ Редактор базы")
     
@@ -134,7 +149,7 @@ elif menu == "РЕДАКТОР":
                     if st.button("Сохранить", key=f"btn_{i}"):
                         st.session_state.db.at[i, 'Остаток'] = new_val
                         save_db(st.session_state.db)
-                        st.success("Данные обновлены")
+                        st.success("Обновлено")
     
     with tab2:
         new_month = st.number_input("Начислить всем на новый месяц (л):", 10.0)
