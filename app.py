@@ -8,57 +8,37 @@ from datetime import datetime, timedelta
 # Настройка страницы
 st.set_page_config(page_title="MILK SYSTEM", layout="centered")
 
-# ЖЕСТКИЙ КОНТРАСТ: Белый фон и ЧЕРНЫЙ текст
+# ТОЧЕЧНЫЕ СТИЛИ (ТОЛЬКО ДЛЯ РЕЗУЛЬТАТА)
 st.markdown("""
     <style>
-    /* Фон всего приложения - БЕЛЫЙ */
-    .stApp { background-color: #ffffff !important; }
-    
-    /* Имя сотрудника - ЖИРНЫЙ ЧЕРНЫЙ */
-    .emp-name {
+    /* Имя сотрудника - ЖЕСТКО ЧЕРНЫЙ */
+    .emp-info-name {
         color: #000000 !important;
         font-size: 32px !important;
-        font-weight: 900 !important;
+        font-weight: bold !important;
         text-align: center;
-        margin-top: 10px;
-        margin-bottom: 20px;
+        margin-top: 20px;
     }
     
-    /* Метрики (Норма / Остаток) - ЖЕСТКО ЧЕРНЫЙ */
+    /* Цифры ПОЛОЖЕНО / ОСТАТОК - ЖЕСТКО ЧЕРНЫЙ */
     div[data-testid="stMetricValue"] > div {
         color: #000000 !important;
-        font-size: 48px !important;
+        font-size: 44px !important;
         font-weight: 900 !important;
     }
+    
+    /* Подписи Норма / Остаток - ЖЕСТКО ЧЕРНЫЙ */
     div[data-testid="stMetricLabel"] > div {
         color: #000000 !important;
-        font-size: 20px !important;
         font-weight: bold !important;
     }
+
+    /* Сами блоки метрик - белые с черной рамкой */
     div[data-testid="stMetric"] {
         background-color: #ffffff !important;
-        border: 3px solid #000000 !important;
-        padding: 20px !important;
+        border: 2px solid #000000 !important;
         border-radius: 10px !important;
-    }
-
-    /* Все тексты на странице */
-    p, label, .stMarkdown, h1, h2, h3, .stSelectbox, .stTextInput {
-        color: #000000 !important;
-    }
-    
-    /* Поля ввода (текст внутри них) */
-    input { 
-        color: #000000 !important; 
-        -webkit-text-fill-color: #000000 !important;
-    }
-
-    /* Кнопки */
-    .stButton>button {
-        background-color: #000000 !important;
-        color: #ffffff !important;
-        font-weight: bold !important;
-        height: 3.5em !important;
+        padding: 10px !important;
     }
     </style>
     """, unsafe_allow_html=True)
@@ -82,14 +62,13 @@ def log_tx(id, name, qty):
 if 'db' not in st.session_state:
     st.session_state.db = load_db()
 
-# Меню
 menu = st.sidebar.radio("НАВИГАЦИЯ", ["ВЫДАЧА", "РЕДАКТОР", "СТАТИСТИКА"])
 
 # --- 1. ВЫДАЧА ---
 if menu == "ВЫДАЧА":
-    st.markdown("<h1 style='text-align: center; color: #000000;'>🥛 ВЫДАЧА</h1>", unsafe_allow_html=True)
+    st.title("🥛 ВЫДАЧА")
     
-    img_file = st.camera_input("СКАНЕР QR")
+    img_file = st.camera_input("СКАНЕР")
     scanned_id = None
     
     if img_file:
@@ -99,7 +78,6 @@ if menu == "ВЫДАЧА":
         data, _, _ = detector.detectAndDecode(img)
         if data:
             scanned_id = data
-            st.success(f"ID: {scanned_id}")
 
     user_id = st.text_input("Введите номер:", value=scanned_id if scanned_id else "")
     
@@ -111,54 +89,42 @@ if menu == "ВЫДАЧА":
             idx = user.index[0]
             row = user.loc[idx]
             
-            st.markdown(f"<div class='emp-name'>{row['Сотрудник']}</div>", unsafe_allow_html=True)
+            # ВЫВОД ДАННЫХ
+            st.markdown(f"<div class='emp-info-name'>{row['Сотрудник']}</div>", unsafe_allow_html=True)
             
             c1, c2 = st.columns(2)
             c1.metric("ПОЛОЖЕНО", f"{row['Литр']} л")
             c2.metric("ОСТАТОК", f"{row['Остаток']} л")
             
             if row['Остаток'] > 0:
-                val = st.number_input("Сколько литров выдать?", 0.5, float(row['Остаток']), step=0.5)
-                if st.button("ПОДТВЕРДИТЬ ВЫДАЧУ"):
+                val = st.number_input("Сколько литров выдаем?", 0.5, float(row['Остаток']), step=0.5)
+                if st.button("ПОДТВЕРДИТЬ"):
                     st.session_state.db.at[idx, 'Остаток'] -= val
                     save_db(st.session_state.db)
                     log_tx(row['Табельный_Молоко'], row['Сотрудник'], val)
                     st.rerun()
             else:
-                st.error("БАЛАНС 0 ЛИТРОВ")
+                st.error("БАЛАНС 0")
         else:
-            st.error("СОТРУДНИК НЕ НАЙДЕН")
+            st.error("НЕ НАЙДЕН")
 
 # --- 2. РЕДАКТОР ---
 elif menu == "РЕДАКТОР":
-    st.title("⚙️ Редактор базы")
-    
-    tab1, tab2 = st.tabs(["Индивидуально", "Массово"])
-    
-    with tab1:
-        q = st.text_input("Поиск (ФИО или Номер)")
-        if q:
-            res = st.session_state.db[st.session_state.db['Сотрудник'].str.contains(q, case=False) | (st.session_state.db['Табельный_Молоко'].astype(str) == q)]
-            for i, r in res.iterrows():
-                with st.expander(f"👤 {r['Сотрудник']} (ID: {r['Табельный_Молоко']})"):
-                    new_val = st.number_input(f"Изменить остаток", value=float(r['Остаток']), key=f"edit_{i}")
-                    if st.button("Сохранить", key=f"btn_{i}"):
-                        st.session_state.db.at[i, 'Остаток'] = new_val
-                        save_db(st.session_state.db)
-                        st.success("Обновлено")
-    
-    with tab2:
-        new_month = st.number_input("Начислить всем на новый месяц (л):", 10.0)
-        if st.button("ОБНОВИТЬ ВСЕМ"):
-            st.session_state.db['Остаток'] = new_month
-            save_db(st.session_state.db)
-            st.success("Готово!")
+    st.title("⚙️ РЕДАКТОР")
+    q = st.text_input("Поиск сотрудника")
+    if q:
+        res = st.session_state.db[st.session_state.db['Сотрудник'].str.contains(q, case=False) | (st.session_state.db['Табельный_Молоко'].astype(str) == q)]
+        for i, r in res.iterrows():
+            with st.expander(f"{r['Сотрудник']}"):
+                new_v = st.number_input("Изменить остаток", value=float(r['Остаток']), key=f"a{i}")
+                if st.button("Сохранить", key=f"s{i}"):
+                    st.session_state.db.at[i, 'Остаток'] = new_v
+                    save_db(st.session_state.db)
+                    st.success("Ок")
 
 # --- 3. СТАТИСТИКА ---
 elif menu == "СТАТИСТИКА":
-    st.title("📊 Статистика выдачи")
+    st.title("📊 СТАТИСТИКА")
     if os.path.exists('history.csv'):
         h = pd.read_csv('history.csv')
         st.dataframe(h.sort_values(by='Время', ascending=False), use_container_width=True)
-    else:
-        st.info("История пуста")
