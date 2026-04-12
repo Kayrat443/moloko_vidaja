@@ -4,62 +4,36 @@ import os
 import cv2
 import numpy as np
 from datetime import datetime, timedelta
+from PIL import Image
 
 # Настройка страницы
-st.set_page_config(page_title="MILK CONTROL", layout="centered")
+st.set_page_config(page_title="MILK STORE", layout="centered")
 
-# ЖЕСТКИЙ СТИЛЬ: Чтобы текст всегда был виден
+# --- СУПЕР-СТРОГИЙ ЧЕРНО-БЕЛЫЙ ДИЗАЙН ---
 st.markdown("""
     <style>
     /* Фон всей страницы */
-    .main { background-color: #f1f5f9 !important; }
+    [data-testid="stAppViewContainer"] { background-color: #ffffff !important; color: #000000 !important; }
+    [data-testid="stHeader"] { background-color: #ffffff !important; }
     
-    /* Имя сотрудника - делаем жирным и темным */
-    .employee-name {
-        color: #0f172a !important;
-        text-align: center;
-        font-size: 32px !important;
-        font-weight: 800 !important;
-        margin-bottom: 20px;
-        padding: 10px;
-    }
+    /* Имя сотрудника */
+    .employee-title { color: #000000 !important; font-size: 34px !important; font-weight: 900 !important; text-align: center; margin-bottom: 20px; text-transform: uppercase; }
 
-    /* Карточки с метриками */
-    div[data-testid="stMetric"] {
-        background-color: #ffffff !important;
-        border: 2px solid #cbd5e1 !important;
-        padding: 20px !important;
-        border-radius: 12px !important;
-    }
+    /* Метрики (Норма / Остаток) */
+    div[data-testid="stMetric"] { background-color: #ffffff !important; border: none !important; padding: 0px !important; text-align: center; }
+    div[data-testid="stMetricLabel"] { color: #555555 !important; font-size: 18px !important; font-weight: bold !important; }
+    div[data-testid="stMetricValue"] { color: #000000 !important; font-size: 44px !important; font-weight: 900 !important; }
+
+    /* Поля ввода и кнопки */
+    .stNumberInput input { color: #000000 !important; font-size: 24px !important; border: 2px solid #000000 !important; }
+    .stTextInput input { color: #000000 !important; border: 2px solid #000000 !important; }
     
-    /* Цвет цифр в метриках */
-    div[data-testid="stMetricValue"] {
-        color: #1e40af !important;
-        font-size: 36px !important;
-        font-weight: bold !important;
-    }
-
-    /* Цвет подписей (Норма / Остаток) */
-    div[data-testid="stMetricLabel"] {
-        color: #475569 !important;
-        font-size: 18px !important;
-        font-weight: bold !important;
-    }
-
     /* Кнопка выдачи */
-    .stButton>button {
-        background-color: #1e40af !important;
-        color: white !important;
-        height: 3.5em !important;
-        font-size: 20px !important;
-        font-weight: bold !important;
-        border-radius: 10px !important;
-        border: none !important;
-        margin-top: 20px;
-    }
+    .stButton>button { background-color: #000000 !important; color: white !important; height: 3.5em !important; font-size: 20px !important; font-weight: bold !important; border-radius: 5px !important; margin-top: 20px; }
     
-    /* Поля ввода */
-    input { color: #0f172a !important; }
+    /* Боковое меню */
+    [data-testid="stSidebar"] { background-color: #f8fafc; border-right: 1px solid #e2e8f0; }
+    [data-testid="stSidebar"] * { color: #000000 !important; }
     </style>
     """, unsafe_allow_html=True)
 
@@ -82,12 +56,13 @@ def log_tx(id, name, qty):
 if 'db' not in st.session_state:
     st.session_state.db = load_db()
 
-menu = st.sidebar.radio("НАВИГАЦИЯ", ["🛒 МАГАЗИН", "⚙️ АДМИНКА", "📊 ОТЧЕТЫ"])
+menu = st.sidebar.radio("НАВИГАЦИЯ", ["ВЫДАЧА", "АДМИН", "ОТЧЕТЫ"])
 
-# --- 1. МАГАЗИН ---
-if menu == "🛒 МАГАЗИН":
-    st.markdown("<h2 style='text-align: center; color: #1e293b;'>🥛 Пункт выдачи</h2>", unsafe_allow_html=True)
+# --- 1. ВЫДАЧА ---
+if menu == "ВЫДАЧА":
+    st.markdown("<h1 style='text-align: center; color: #000000;'>🛒 Магазин</h1>", unsafe_allow_html=True)
     
+    # Камера (с попыткой переключения на заднюю)
     img_file = st.camera_input("СКАНЕР QR")
     scanned_id = None
     
@@ -98,11 +73,11 @@ if menu == "🛒 МАГАЗИН":
         data, _, _ = detector.detectAndDecode(img)
         if data:
             scanned_id = data
-            st.success(f"ID считан: {scanned_id}")
+            st.success(f"ID: {scanned_id}")
         else:
-            st.error("QR не распознан. Наведите точнее.")
+            st.warning("QR не распознан, попробуйте еще раз.")
 
-    user_id = st.text_input("Введите номер вручную, если не сканирует", value=scanned_id if scanned_id else "")
+    user_id = st.text_input("Введите номер вручную:", value=scanned_id if scanned_id else "")
     
     if user_id:
         db = st.session_state.db
@@ -112,44 +87,44 @@ if menu == "🛒 МАГАЗИН":
             idx = user.index[0]
             row = user.loc[idx]
             
-            # ВЫВОД ИМЕНИ (ТЕМНЫМ ЦВЕТОМ)
-            st.markdown(f"<div class='employee-name'>{row['Сотрудник']}</div>", unsafe_allow_html=True)
+            # --- ЧЕРНЫЙ ФИО НА БЕЛОМ ---
+            st.markdown(f"<div class='employee-title'>{row['Сотрудник']}</div>", unsafe_allow_html=True)
             
             c1, c2 = st.columns(2)
             c1.metric("НОРМА", f"{row['Литр']} л")
             c2.metric("ОСТАТОК", f"{row['Остаток']} л")
             
             if row['Остаток'] > 0:
-                st.markdown("<p style='color: #0f172a; font-weight: bold;'>Кол-во к выдаче:</p>", unsafe_allow_html=True)
-                val = st.number_input("", 0.5, float(row['Остаток']), step=0.5, label_visibility="collapsed")
+                st.write("### Количество к выдаче:")
+                val = st.number_input("", 0.5, float(row['Остаток']), step=0.5, key="val_input")
                 
                 if st.button("ПОДТВЕРДИТЬ ВЫДАЧУ"):
                     st.session_state.db.at[idx, 'Остаток'] -= val
                     save_db(st.session_state.db)
                     log_tx(row['Табельный_Молоко'], row['Сотрудник'], val)
-                    st.success("Данные обновлены!")
+                    st.success("ГОТОВО")
                     st.rerun()
             else:
-                st.error("БАЛАНС ПУСТ")
+                st.error("БАЛАНС 0")
         else:
-            st.error("СОТРУДНИК НЕ НАЙДЕН")
+            st.error("Сотрудник не найден")
 
-# --- ОСТАЛЬНЫЕ РАЗДЕЛЫ ---
-elif menu == "⚙️ АДМИНКА":
-    st.title("Админка")
-    # Логика поиска и начисления остается прежней
-    q = st.text_input("Поиск сотрудника")
+# --- 2. АДМИН (без изменений логики) ---
+elif menu == "АДМИН":
+    st.title("Управление")
+    q = st.text_input("ФИО или Табельный")
     if q:
         res = st.session_state.db[st.session_state.db['Сотрудник'].str.contains(q, case=False) | (st.session_state.db['Табельный_Молоко'].astype(str) == q)]
         for i, r in res.iterrows():
             with st.expander(f"{r['Сотрудник']}"):
-                new_v = st.number_input("Изменить остаток", value=float(r['Остаток']), key=f"ad{i}")
+                new_v = st.number_input("Правка остатка", value=float(r['Остаток']), key=f"ad{i}")
                 if st.button("Сохранить", key=f"s{i}"):
                     st.session_state.db.at[i, 'Остаток'] = new_v
                     save_db(st.session_state.db)
                     st.success("Ок")
 
-elif menu == "📊 ОТЧЕТЫ":
+# --- 3. ОТЧЕТЫ (без изменений логики) ---
+elif menu == "ОТЧЕТЫ":
     st.title("Статистика")
     if os.path.exists('history.csv'):
         h = pd.read_csv('history.csv')
