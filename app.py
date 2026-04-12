@@ -113,12 +113,12 @@ elif menu == "РЕДАКТОР":
                         st.success("Обновлено")
     with t2:
         n = st.number_input("Установить всем лимит (л):", 10.0)
-        if st.button("ОБНОВИТЬ ВСУ БАЗУ"):
+        if st.button("ОБНОВИТЬ ВСЮ БАЗУ"):
             st.session_state.db['Остаток'] = n
             save_db(st.session_state.db)
             st.success("Всем начислено")
 
-# --- 3. СТАТИСТИКА (С ФУНКЦИЕЙ ОЧИСТКИ) ---
+# --- 3. СТАТИСТИКА ---
 elif menu == "СТАТИСТИКА":
     st.title("📊 Статистика")
     if os.path.exists('history.csv'):
@@ -134,4 +134,20 @@ elif menu == "СТАТИСТИКА":
         elif period == "Выбрать дату":
             rng = st.date_input("Диапазон дат:", [today, today])
             if len(rng) == 2:
-                h = h[(h['Время'].dt.date >= rng[0]) & (h['Время'].dt.date <= rng
+                h = h[(h['Время'].dt.date >= rng[0]) & (h['Время'].dt.date <= rng[1])]
+        
+        st.metric("ИТОГО ВЫДАНО ЗА ПЕРИОД", f"{h['Литры'].sum()} л")
+        st.dataframe(h.sort_values(by='Время', ascending=False), use_container_width=True)
+
+        st.markdown("---")
+        st.subheader("⚠️ Опасная зона")
+        confirm = st.checkbox("Я уверен, что хочу очистить всю историю выдачи")
+        if st.button("ОЧИСТИТЬ СТАТИСТИКУ"):
+            if confirm:
+                os.remove('history.csv')
+                st.success("История удалена!")
+                st.rerun()
+            else:
+                st.warning("Подтвердите удаление галочкой!")
+    else:
+        st.info("История пуста")
