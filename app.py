@@ -5,49 +5,41 @@ import cv2
 import numpy as np
 from datetime import datetime, timedelta
 
-# Чистый белый фон для всего приложения
-st.set_page_config(page_title="MILK STORE", layout="centered")
+# Настройки страницы
+st.set_page_config(page_title="MILK SYSTEM", layout="centered")
 
+# --- ТОЛЬКО НУЖНЫЕ ПРАВКИ ЦВЕТА ---
 st.markdown("""
     <style>
-    /* Весь текст на странице делаем черным */
-    .stApp, .stMarkdown, p, h1, h2, h3, span, label {
+    /* Имя сотрудника - СТРОГО ЧЕРНЫЙ */
+    .emp-name {
         color: #000000 !important;
-    }
-    /* Делаем фон чисто белым */
-    .stApp {
-        background-color: #ffffff !important;
-    }
-    /* Крупный шрифт для ФИО */
-    .fio-text {
-        font-size: 32px !important;
+        font-size: 30px !important;
         font-weight: bold !important;
-        color: #000000 !important;
         text-align: center;
-        margin-top: 20px;
+        background-color: #ffffff;
+        padding: 10px;
+        border-radius: 5px;
     }
-    /* Настройка метрик (Литры) */
-    [data-testid="stMetricValue"] {
+    /* Цифры в метриках - СТРОГО ЧЕРНЫЙ */
+    div[data-testid="stMetricValue"] {
         color: #000000 !important;
-        font-size: 48px !important;
         font-weight: bold !important;
     }
-    [data-testid="stMetricLabel"] {
+    /* Подписи к метрикам */
+    div[data-testid="stMetricLabel"] {
         color: #333333 !important;
-        font-size: 20px !important;
     }
-    /* Кнопка */
-    .stButton>button {
-        background-color: #000000 !important;
-        color: #ffffff !important;
-        width: 100%;
-        height: 3em;
-        font-weight: bold;
+    /* Сами карточки делаем белыми и видимыми */
+    div[data-testid="stMetric"] {
+        background-color: #ffffff !important;
+        border: 1px solid #000000 !important;
+        padding: 15px !important;
     }
     </style>
     """, unsafe_allow_html=True)
 
-# --- ЛОГИКА ДАННЫХ ---
+# --- БАЗА ---
 def load_db():
     df = pd.read_excel('itog.xlsx')
     if 'Остаток' not in df.columns:
@@ -66,12 +58,11 @@ def log_tx(id, name, qty):
 if 'db' not in st.session_state:
     st.session_state.db = load_db()
 
-menu = st.sidebar.radio("МЕНЮ", ["МАГАЗИН", "АДМИН", "ОТЧЕТЫ"])
+menu = st.sidebar.radio("НАВИГАЦИЯ", ["МАГАЗИН", "АДМИН", "ОТЧЕТЫ"])
 
 if menu == "МАГАЗИН":
-    st.markdown("<h1 style='text-align: center;'>🥛 ВЫДАЧА</h1>", unsafe_allow_html=True)
+    st.title("Выдача молока")
     
-    # Стандартная камера (передняя)
     img_file = st.camera_input("СКАНЕР QR")
     scanned_id = None
     
@@ -94,20 +85,20 @@ if menu == "МАГАЗИН":
             idx = user.index[0]
             row = user.loc[idx]
             
-            # ЧЕРНЫЙ ТЕКСТ ФИО
-            st.markdown(f"<div class='fio-text'>{row['Сотрудник']}</div>", unsafe_allow_html=True)
+            # ВЫВОД ДАННЫХ (ТЕПЕРЬ ЧИТАЕМО)
+            st.markdown(f"<div class='emp-name'>{row['Сотрудник']}</div>", unsafe_allow_html=True)
             
-            # КРУПНЫЕ ЧЕРНЫЕ ЦИФРЫ
             c1, c2 = st.columns(2)
-            c1.metric("НОРМА", f"{row['Литр']} л")
+            c1.metric("ПОЛОЖЕНО", f"{row['Литр']} л")
             c2.metric("ОСТАТОК", f"{row['Остаток']} л")
             
             if row['Остаток'] > 0:
-                val = st.number_input("Сколько литров выдать?", 0.5, float(row['Остаток']), step=0.5)
+                val = st.number_input("Сколько выдать?", 0.5, float(row['Остаток']), step=0.5)
                 if st.button("ПОДТВЕРДИТЬ ВЫДАЧУ"):
                     st.session_state.db.at[idx, 'Остаток'] -= val
                     save_db(st.session_state.db)
                     log_tx(row['Табельный_Молоко'], row['Сотрудник'], val)
+                    st.success("Выдано!")
                     st.rerun()
             else:
                 st.error("БАЛАНС 0 ЛИТРОВ")
@@ -116,19 +107,21 @@ if menu == "МАГАЗИН":
 
 elif menu == "АДМИН":
     st.title("Админка")
-    q = st.text_input("Поиск")
+    q = st.text_input("Поиск сотрудника")
     if q:
         res = st.session_state.db[st.session_state.db['Сотрудник'].str.contains(q, case=False) | (st.session_state.db['Табельный_Молоко'].astype(str) == q)]
         for i, r in res.iterrows():
             with st.expander(f"{r['Сотрудник']}"):
-                new_v = st.number_input("Правка", value=float(r['Остаток']), key=f"a{i}")
-                if st.button("Ок", key=f"s{i}"):
+                new_v = st.number_input("Изменить остаток", value=float(r['Остаток']), key=f"ad{i}")
+                if st.button("Сохранить", key=f"s{i}"):
                     st.session_state.db.at[i, 'Остаток'] = new_v
                     save_db(st.session_state.db)
-                    st.success("Изменено")
+                    st.success("Обновлено")
 
 elif menu == "ОТЧЕТЫ":
     st.title("Отчеты")
     if os.path.exists('history.csv'):
         h = pd.read_csv('history.csv')
         st.dataframe(h.sort_values(by='Время', ascending=False), use_container_width=True)
+    else:
+        st.info("История пуста")
