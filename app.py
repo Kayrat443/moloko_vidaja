@@ -1,51 +1,16 @@
 import streamlit as st
 import pandas as pd
 import os
-import cv2
-import numpy as np
-from datetime import datetime, timedelta
+from datetime import datetime
 
-# Настройка страницы
-st.set_page_config(page_title="MILK SYSTEM", layout="centered")
+# Настройки оформления
+st.set_page_config(page_title="Milk Store", page_icon="🥛", layout="centered")
 
-# ТОЧЕЧНЫЕ СТИЛИ (ТОЛЬКО ДЛЯ РЕЗУЛЬТАТА)
-st.markdown("""
-    <style>
-    /* Имя сотрудника - ЖЕСТКО ЧЕРНЫЙ */
-    .emp-info-name {
-        color: #000000 !important;
-        font-size: 32px !important;
-        font-weight: bold !important;
-        text-align: center;
-        margin-top: 20px;
-    }
-    
-    /* Цифры ПОЛОЖЕНО / ОСТАТОК - ЖЕСТКО ЧЕРНЫЙ */
-    div[data-testid="stMetricValue"] > div {
-        color: #000000 !important;
-        font-size: 44px !important;
-        font-weight: 900 !important;
-    }
-    
-    /* Подписи Норма / Остаток - ЖЕСТКО ЧЕРНЫЙ */
-    div[data-testid="stMetricLabel"] > div {
-        color: #000000 !important;
-        font-weight: bold !important;
-    }
-
-    /* Сами блоки метрик - белые с черной рамкой */
-    div[data-testid="stMetric"] {
-        background-color: #ffffff !important;
-        border: 2px solid #000000 !important;
-        border-radius: 10px !important;
-        padding: 10px !important;
-    }
-    </style>
-    """, unsafe_allow_html=True)
-
-# --- ЛОГИКА ДАННЫХ ---
+# --- ФУНКЦИИ РАБОТЫ С ДАННЫМИ ---
 def load_db():
+    # Загружаем основной список
     df = pd.read_excel('itog.xlsx')
+    # Если еще нет столбца Остаток, создаем его на основе нормы (Литр)
     if 'Остаток' not in df.columns:
         df['Остаток'] = df['Литр']
     return df
@@ -53,78 +18,94 @@ def load_db():
 def save_db(df):
     df.to_excel('itog.xlsx', index=False)
 
-def log_tx(id, name, qty):
+def log_transaction(nomer, fio, amount):
+    # Записываем историю выдачи в отдельный файл
     log_file = 'history.csv'
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    entry = pd.DataFrame([[now, id, name, qty]], columns=['Время', 'ID', 'ФИО', 'Литры'])
-    entry.to_csv(log_file, mode='a', header=not os.path.exists(log_file), index=False)
+    new_entry = pd.DataFrame([[now, nomer, fio, amount]], 
+                             columns=['Дата_Время', 'ID', 'ФИО', 'Выдано_литров'])
+    
+    if os.path.exists(log_file):
+        new_entry.to_csv(log_file, mode='a', header=False, index=False)
+    else:
+        new_entry.to_csv(log_file, index=False)
 
+# --- ИНТЕРФЕЙС ---
+st.title("🥛 Система выдачи молока")
+
+# Инициализируем базу в сессии
 if 'db' not in st.session_state:
     st.session_state.db = load_db()
 
-menu = st.sidebar.radio("НАВИГАЦИЯ", ["ВЫДАЧА", "РЕДАКТОР", "СТАТИСТИКА"])
+menu = st.sidebar.selectbox("Навигация", ["🛒 Выдача (Магазин)", "⚙️ Админ-панель", "📊 Статистика"])
 
-# --- 1. ВЫДАЧА ---
-if menu == "ВЫДАЧА":
-    st.title("🥛 ВЫДАЧА")
+if menu == "🛒 Выдача (Магазин)":
+    st.subheader("Сканирование сотрудника")
     
-    img_file = st.camera_input("СКАНЕР")
-    scanned_id = None
+    # Поле для ввода номера (сюда будет попадать цифра со сканера или вручную)
+    user_id_input = st.text_input("Введите табельный номер или используйте сканер", key="id_input")
     
-    if img_file:
-        file_bytes = np.asarray(bytearray(img_file.read()), dtype=np.uint8)
-        img = cv2.imdecode(file_bytes, 1)
-        detector = cv2.QRCodeDetector()
-        data, _, _ = detector.detectAndDecode(img)
-        if data:
-            scanned_id = data
-
-    user_id = st.text_input("Введите номер:", value=scanned_id if scanned_id else "")
-    
-    if user_id:
+    if user_id_input:
         db = st.session_state.db
-        user = db[db['Табельный_Молоко'].astype(str) == str(user_id)]
+        # Ищем сотрудника
+        user_data = db[db['Табельный_Молоко'].astype(str) == str(user_id_input)]
         
-        if not user.empty:
-            idx = user.index[0]
-            row = user.loc[idx]
+        if not user_data.empty:
+            idx = user_data.index[0]
+            person = user_data.loc[idx]
             
-            # ВЫВОД ДАННЫХ
-            st.markdown(f"<div class='emp-info-name'>{row['Сотрудник']}</div>", unsafe_allow_html=True)
+            # Показываем карточку сотрудника
+            st.info(f"**Сотрудник:** {person['Сотрудник']}\n\n**Должность:** {person['Должность']}")
             
-            c1, c2 = st.columns(2)
-            c1.metric("ПОЛОЖЕНО", f"{row['Литр']} л")
-            c2.metric("ОСТАТОК", f"{row['Остаток']} л")
+            col1, col2 = st.columns(2)
+            col1.metric("Положено всего", f"{person['Литр']} л")
+            col2.metric("Осталось сейчас", f"{person['Остаток']} л", delta_color="normal")
             
-            if row['Остаток'] > 0:
-                val = st.number_input("Сколько литров выдаем?", 0.5, float(row['Остаток']), step=0.5)
-                if st.button("ПОДТВЕРДИТЬ"):
-                    st.session_state.db.at[idx, 'Остаток'] -= val
+            if person['Остаток'] > 0:
+                amount_to_give = st.number_input("Сколько литров выдаем?", min_value=0.0, max_value=float(person['Остаток']), step=0.5)
+                
+                if st.button("✅ ПОДТВЕРДИТЬ ВЫДАЧУ", use_container_width=True):
+                    # Обновляем остаток в памяти
+                    st.session_state.db.at[idx, 'Остаток'] -= amount_to_give
+                    # Сохраняем в файл
                     save_db(st.session_state.db)
-                    log_tx(row['Табельный_Молоко'], row['Сотрудник'], val)
-                    st.rerun()
+                    # Пишем в историю
+                    log_transaction(person['Табельный_Молоко'], person['Сотрудник'], amount_to_give)
+                    
+                    st.success(f"Выдано {amount_to_give} л. Остаток: {st.session_state.db.at[idx, 'Остаток']} л")
+                    st.balloons()
             else:
-                st.error("БАЛАНС 0")
+                st.error("Лимит молока исчерпан!")
         else:
-            st.error("НЕ НАЙДЕН")
+            st.warning("Сотрудник не найден. Проверьте номер.")
 
-# --- 2. РЕДАКТОР ---
-elif menu == "РЕДАКТОР":
-    st.title("⚙️ РЕДАКТОР")
-    q = st.text_input("Поиск сотрудника")
-    if q:
-        res = st.session_state.db[st.session_state.db['Сотрудник'].str.contains(q, case=False) | (st.session_state.db['Табельный_Молоко'].astype(str) == q)]
-        for i, r in res.iterrows():
-            with st.expander(f"{r['Сотрудник']}"):
-                new_v = st.number_input("Изменить остаток", value=float(r['Остаток']), key=f"a{i}")
-                if st.button("Сохранить", key=f"s{i}"):
-                    st.session_state.db.at[i, 'Остаток'] = new_v
-                    save_db(st.session_state.db)
-                    st.success("Ок")
+elif menu == "⚙️ Админ-панель":
+    st.subheader("Управление базой")
+    
+    # Кнопка обновления на месяц
+    new_month_val = st.number_input("Установить новую норму всем (литров)", value=10.0)
+    if st.button("🔄 Начислить всем на новый месяц"):
+        st.session_state.db['Остаток'] = new_month_val
+        st.session_state.db['Литр'] = new_month_val
+        save_db(st.session_state.db)
+        st.success(f"Всем сотрудникам начислено по {new_month_val} литров!")
 
-# --- 3. СТАТИСТИКА ---
-elif menu == "СТАТИСТИКА":
-    st.title("📊 СТАТИСТИКА")
+    st.divider()
+    st.write("### Поиск и редактирование")
+    search_fio = st.text_input("Поиск по Фамилии")
+    if search_fio:
+        filtered = st.session_state.db[st.session_state.db['Сотрудник'].str.contains(search_fio, case=False)]
+        st.dataframe(filtered[['Сотрудник', 'Табельный_Молоко', 'Остаток']])
+
+elif menu == "📊 Статистика":
+    st.subheader("Отчет по выдаче")
     if os.path.exists('history.csv'):
-        h = pd.read_csv('history.csv')
-        st.dataframe(h.sort_values(by='Время', ascending=False), use_container_width=True)
+        history_df = pd.read_csv('history.csv')
+        st.write("Последние операции:")
+        st.dataframe(history_df.tail(10))
+        
+        # Кнопка скачивания
+        csv = history_df.to_csv(index=False).encode('utf-8')
+        st.download_button("📥 Скачать полный отчет (CSV)", csv, "milk_report.csv", "text/csv")
+    else:
+        st.info("История выдач пока пуста.")
