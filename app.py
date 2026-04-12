@@ -8,30 +8,24 @@ from datetime import datetime, timedelta
 # Настройка страницы
 st.set_page_config(page_title="MILK SYSTEM", layout="centered")
 
-# --- БЛОК УПРАВЛЕНИЯ ЦВЕТАМИ (МЕНЯЙ ТУТ) ---
+# --- СТИЛИ (ТЫ МОЖЕШЬ МЕНЯТЬ ЦВЕТА ТУТ) ---
 st.markdown("""
     <style>
-    /* 1. ОБЩИЙ ФОН ПРИЛОЖЕНИЯ */
     [data-testid="stAppViewContainer"] { background-color: #FFFFFF !important; }
-
-    /* 2. ТЕКСТ В ПОЛЯХ ВВОДА (чтобы видел, что пишешь) */
     input { color: #000000 !important; background-color: #F8F9FA !important; }
     
-    /* 3. КАРТОЧКА СОТРУДНИКА (РЕЗУЛЬТАТ) */
     .result-card {
-        background-color: #FFFFFF !important; /* Фон карточки */
+        background-color: #FFFFFF !important;
         padding: 20px;
         border-radius: 12px;
-        border: 3px solid #000000; /* Черная рамка */
+        border: 3px solid #000000;
         margin-bottom: 20px;
     }
 
-    /* 4. ТЕКСТ ВНУТРИ КАРТОЧКИ (ФИО, ЛИТРЫ) */
     .res-fio { color: #000000 !important; font-size: 28px !important; font-weight: bold; text-align: center; }
     .res-val { color: #000000 !important; font-size: 44px !important; font-weight: 900; text-align: center; }
     .res-label { color: #333333 !important; font-size: 18px; text-align: center; font-weight: bold; }
     
-    /* 5. КНОПКИ */
     .stButton>button {
         background-color: #000000 !important;
         color: #FFFFFF !important;
@@ -39,7 +33,6 @@ st.markdown("""
         font-weight: bold;
     }
 
-    /* 6. ВСЕ ОСТАЛЬНЫЕ ТЕКСТЫ */
     p, label, h1, h2, h3 { color: #000000 !important; }
     </style>
     """, unsafe_allow_html=True)
@@ -83,8 +76,6 @@ if menu == "ВЫДАЧА":
         user = db[db['Табельный_Молоко'].astype(str) == str(user_id)]
         if not user.empty:
             idx, row = user.index[0], user.loc[user.index[0]]
-            
-            # РЕЗУЛЬТАТ (КАРТОЧКА)
             st.markdown(f"""
                 <div class="result-card">
                     <div class="res-fio">{row['Сотрудник']}</div>
@@ -105,17 +96,16 @@ if menu == "ВЫДАЧА":
             else: st.error("БАЛАНС 0 ЛИТРОВ")
         else: st.error("СОТРУДНИК НЕ НАЙДЕН")
 
-# --- 2. РЕДАКТОР (ВСЁ ВЕРНУЛ) ---
+# --- 2. РЕДАКТОР ---
 elif menu == "РЕДАКТОР":
     st.title("⚙️ Редактор")
     t1, t2 = st.tabs(["Индивидуально", "Массово (Начислить всем)"])
-    
     with t1:
         q = st.text_input("Поиск сотрудника")
         if q:
             res = st.session_state.db[st.session_state.db['Сотрудник'].str.contains(q, case=False) | (st.session_state.db['Табельный_Молоко'].astype(str) == q)]
             for i, r in res.iterrows():
-                with st.expander(f"👤 {r['Сотрудник']} (ID: {r['Табельный_Молоко']})"):
+                with st.expander(f"👤 {r['Сотрудник']}"):
                     new_v = st.number_input("Остаток вручную", value=float(r['Остаток']), key=f"e{i}")
                     if st.button("Сохранить", key=f"s{i}"):
                         st.session_state.db.at[i, 'Остаток'] = new_v
@@ -123,19 +113,18 @@ elif menu == "РЕДАКТОР":
                         st.success("Обновлено")
     with t2:
         n = st.number_input("Установить всем лимит (л):", 10.0)
-        if st.button("ОБНОВИТЬ ВСЮ БАЗУ"):
+        if st.button("ОБНОВИТЬ ВСУ БАЗУ"):
             st.session_state.db['Остаток'] = n
             save_db(st.session_state.db)
-            st.success(f"Всем начислено по {n} л")
+            st.success("Всем начислено")
 
-# --- 3. СТАТИСТИКА (ВСЁ ВЕРНУЛ) ---
+# --- 3. СТАТИСТИКА (С ФУНКЦИЕЙ ОЧИСТКИ) ---
 elif menu == "СТАТИСТИКА":
     st.title("📊 Статистика")
     if os.path.exists('history.csv'):
         h = pd.read_csv('history.csv')
         h['Время'] = pd.to_datetime(h['Время'])
         
-        # ФИЛЬТРЫ
         period = st.radio("Период:", ["Сегодня", "Неделя", "Месяц", "Выбрать дату"], horizontal=True)
         today = datetime.now().date()
         
@@ -145,8 +134,4 @@ elif menu == "СТАТИСТИКА":
         elif period == "Выбрать дату":
             rng = st.date_input("Диапазон дат:", [today, today])
             if len(rng) == 2:
-                h = h[(h['Время'].dt.date >= rng[0]) & (h['Время'].dt.date <= rng[1])]
-        
-        st.metric("ИТОГО ВЫДАНО ЗА ПЕРИОД", f"{h['Литры'].sum()} л")
-        st.dataframe(h.sort_values(by='Время', ascending=False), use_container_width=True)
-    else: st.info("История пуста")
+                h = h[(h['Время'].dt.date >= rng[0]) & (h['Время'].dt.date <= rng
