@@ -11,10 +11,10 @@ st.set_page_config(page_title="MILK SYSTEM", layout="centered")
 # ЖЕСТКИЙ КОНТРАСТ: Белый фон и ЧЕРНЫЙ текст
 st.markdown("""
     <style>
-    /* Фон приложения */
+    /* Фон всего приложения - БЕЛЫЙ */
     .stApp { background-color: #ffffff !important; }
     
-    /* Имя сотрудника */
+    /* Имя сотрудника - ЖИРНЫЙ ЧЕРНЫЙ */
     .emp-name {
         color: #000000 !important;
         font-size: 32px !important;
@@ -24,13 +24,13 @@ st.markdown("""
         margin-bottom: 20px;
     }
     
-    /* Метрики (Положено / Остаток) */
-    div[data-testid="stMetricValue"] {
+    /* Метрики (Норма / Остаток) - ЖЕСТКО ЧЕРНЫЙ */
+    div[data-testid="stMetricValue"] > div {
         color: #000000 !important;
         font-size: 48px !important;
         font-weight: 900 !important;
     }
-    div[data-testid="stMetricLabel"] {
+    div[data-testid="stMetricLabel"] > div {
         color: #000000 !important;
         font-size: 20px !important;
         font-weight: bold !important;
@@ -42,26 +42,23 @@ st.markdown("""
         border-radius: 10px !important;
     }
 
-    /* Все остальные тексты и метки */
-    p, label, .stMarkdown, h1, h2, h3 {
+    /* Все тексты на странице */
+    p, label, .stMarkdown, h1, h2, h3, .stSelectbox, .stTextInput {
         color: #000000 !important;
-        font-weight: bold !important;
     }
     
+    /* Поля ввода (текст внутри них) */
+    input { 
+        color: #000000 !important; 
+        -webkit-text-fill-color: #000000 !important;
+    }
+
     /* Кнопки */
     .stButton>button {
         background-color: #000000 !important;
         color: #ffffff !important;
         font-weight: bold !important;
         height: 3.5em !important;
-        font-size: 18px !important;
-    }
-    
-    /* Поля ввода */
-    input { 
-        color: #000000 !important; 
-        border: 2px solid #000000 !important; 
-        font-weight: bold !important;
     }
     </style>
     """, unsafe_allow_html=True)
@@ -90,7 +87,7 @@ menu = st.sidebar.radio("НАВИГАЦИЯ", ["ВЫДАЧА", "РЕДАКТОР
 
 # --- 1. ВЫДАЧА ---
 if menu == "ВЫДАЧА":
-    st.markdown("<h1 style='text-align: center;'>🥛 ВЫДАЧА</h1>", unsafe_allow_html=True)
+    st.markdown("<h1 style='text-align: center; color: #000000;'>🥛 ВЫДАЧА</h1>", unsafe_allow_html=True)
     
     img_file = st.camera_input("СКАНЕР QR")
     scanned_id = None
@@ -126,7 +123,6 @@ if menu == "ВЫДАЧА":
                     st.session_state.db.at[idx, 'Остаток'] -= val
                     save_db(st.session_state.db)
                     log_tx(row['Табельный_Молоко'], row['Сотрудник'], val)
-                    st.success("ГОТОВО")
                     st.rerun()
             else:
                 st.error("БАЛАНС 0 ЛИТРОВ")
