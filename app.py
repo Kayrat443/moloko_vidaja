@@ -6,11 +6,11 @@ import cv2
 import numpy as np
 from datetime import datetime
 import io
+import json
 
-# Настройка страницы
 st.set_page_config(page_title="MILK SYSTEM", layout="centered")
 
-# Дизайн
+# --- СТИЛИ ---
 st.markdown("""
     <style>
     [data-testid="stAppViewContainer"] { background-color: #ffffff !important; }
@@ -26,7 +26,6 @@ DB_NAME = "milk_factory.db"
 def init_db():
     conn = sqlite3.connect(DB_NAME)
     c = conn.cursor()
-    # Создаем таблицы если их нет
     c.execute('''CREATE TABLE IF NOT EXISTS employees 
                  (kod TEXT PRIMARY KEY, fio TEXT, position TEXT, days INTEGER, hours REAL, 
                   prev_left REAL, total_liters REAL, remaining_liters REAL)''')
@@ -34,6 +33,8 @@ def init_db():
                  (id INTEGER PRIMARY KEY AUTOINCREMENT, kod TEXT, fio TEXT, amount REAL, date TEXT)''')
     c.execute('''CREATE TABLE IF NOT EXISTS last_upload_log 
                  (kod TEXT, added_amount REAL)''')
+    c.execute('''CREATE TABLE IF NOT EXISTS archives 
+                 (id INTEGER PRIMARY KEY AUTOINCREMENT, filename TEXT, data TEXT, date TEXT)''')
     conn.commit()
     conn.close()
 
@@ -44,7 +45,6 @@ menu = st.sidebar.radio("МЕНЮ", ["ВЫДАЧА", "ОТЧЕТЫ", "АДМИН
 # --- 1. ВЫДАЧА ---
 if menu == "ВЫДАЧА":
     st.markdown("<h1 style='text-align: center;'>🥛 ВЫДАЧА</h1>", unsafe_allow_html=True)
-    
     img_file = st.camera_input("СКАНЕР QR")
     scanned_kod = ""
     if img_file:
@@ -55,7 +55,6 @@ if menu == "ВЫДАЧА":
         if data: scanned_kod = str(data).strip()
 
     user_kod = st.text_input("ВВЕДИТЕ КОД СОТРУДНИКА", value=scanned_kod)
-    
     if user_kod:
         conn = sqlite3.connect(DB_NAME)
         user = pd.read_sql("SELECT * FROM employees WHERE kod = ?", conn, params=(user_kod.strip(),))
@@ -64,49 +63,75 @@ if menu == "ВЫДАЧА":
             st.markdown(f"""
                 <div class="emp-info">
                     <h2 style='margin:0;'>{u['fio']}</h2>
-                    <p style='color:#555;'>{u['position']} | {u['days']} дн. ({u['hours']} ч.)</p>
+                    <p>{u['position']} | {u['days']} дн. ({u['hours']} ч.)</p>
                     <hr>
-                    <p style='color:blue;'>Было: {u['prev_left']} л | Новое: {u['total_liters']} л</p>
+                    <p style='color:blue;'>Остаток с прошлого: {u['prev_left']} л | Новое: {u['total_liters']} л</p>
                 </div>
             """, unsafe_allow_html=True)
-            
             c1, c2 = st.columns(2)
-            c1.metric("ОСТАТОК", f"{u['remaining_liters']} л")
+            c1.metric("ОБЩИЙ ОСТАТОК", f"{u['remaining_liters']} л")
             c2.metric("ВЫДАНО", f"{(u['prev_left'] + u['total_liters']) - u['remaining_liters']:.1f} л")
             
             if u['remaining_liters'] > 0:
                 amount = st.number_input("Сколько выдать?", 0.5, float(u['remaining_liters']), step=0.5)
-                if st.button("ПОДТВЕРДИТЬ"):
+                if st.button("ПОДТВЕРДИТЬ ВЫДАЧУ"):
                     new_rem = u['remaining_liters'] - amount
                     cur = conn.cursor()
                     cur.execute("UPDATE employees SET remaining_liters = ? WHERE kod = ?", (new_rem, u['kod']))
                     cur.execute("INSERT INTO history (kod, fio, amount, date) VALUES (?, ?, ?, ?)", 
                                 (u['kod'], u['fio'], amount, datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
                     conn.commit()
-                    st.success("Выдано!")
+                    st.success("Выдано успешно!")
                     st.rerun()
         else: st.error("Код не найден")
         conn.close()
 
 # --- 2. ОТЧЕТЫ ---
 elif menu == "ОТЧЕТЫ":
-    st.title("📊 История")
+    st.title("📊 Статистика и Архивы")
     conn = sqlite3.connect(DB_NAME)
-    df = pd.read_sql("SELECT date as 'Дата', kod as 'Код', fio as 'ФИО', amount as 'Литры' FROM history ORDER BY id DESC", conn)
-    st.dataframe(df, use_container_width=True)
-    if not df.empty:
-        output = io.BytesIO()
-        with pd.ExcelWriter(output, engine='openpyxl') as writer:
-            df.to_excel(writer, index=False)
-        st.download_button("📥 СКАЧАТЬ В EXCEL", data=output.getvalue(), file_name="milk_report.xlsx")
+    
+    t1, t2 = st.tabs(["ТЕКУЩАЯ ВЫДАЧА", "АРХИВЫ СФОРМИРОВАННЫЕ"])
+    
+    with t1:
+        df = pd.read_sql("SELECT date as 'Дата', kod as 'Код', fio as 'ФИО', amount as 'Литры' FROM history ORDER BY id DESC", conn)
+        if not df.empty:
+            st.dataframe(df, use_container_width=True)
+            buf = io.BytesIO()
+            with pd.ExcelWriter(buf, engine='openpyxl') as writer:
+                df.to_excel(writer, index=False)
+            st.download_button("📥 СКАЧАТЬ ТЕКУЩИЙ ОТЧЕТ", data=buf.getvalue(), file_name="current_milk.xlsx")
+            
+            st.divider()
+            if st.checkbox("Я хочу очистить текущую историю"):
+                if st.button("❌ ОЧИСТИТЬ ТЕКУЩУЮ СТАТИСТИКУ"):
+                    conn.execute("DELETE FROM history")
+                    conn.commit()
+                    st.rerun()
+        else: st.info("Текущая история пуста")
+
+    with t2:
+        archives = pd.read_sql("SELECT id, filename, date FROM archives ORDER BY id DESC", conn)
+        if not archives.empty:
+            for _, arch in archives.iterrows():
+                with st.expander(f"📁 {arch['filename']} (от {arch['date']})"):
+                    res = conn.execute("SELECT data FROM archives WHERE id = ?", (arch['id'],)).fetchone()
+                    arch_df = pd.read_json(res[0])
+                    st.dataframe(arch_df, use_container_width=True)
+                    
+                    buf_a = io.BytesIO()
+                    with pd.ExcelWriter(buf_a, engine='openpyxl') as writer:
+                        arch_df.to_excel(writer, index=False)
+                    st.download_button(f"📥 Скачать {arch['filename']}", data=buf_a.getvalue(), file_name=f"{arch['filename']}.xlsx", key=f"dl_{arch['id']}")
+        else: st.info("Архивов пока нет")
     conn.close()
 
 # --- 3. АДМИН ---
 elif menu == "АДМИН":
-    st.title("⚙️ Админ")
+    st.title("⚙️ Админ-панель")
     
-    # КНОПКА ОТМЕНЫ
-    if st.button("⏪ ОТМЕНИТЬ ПОСЛЕДНЮЮ ЗАГРУЗКУ EXCEL"):
+    # ОТКАТ
+    if st.button("⏪ ОТМЕНИТЬ ПОСЛЕДНЮЮ ЗАГРУЗКУ"):
         conn = sqlite3.connect(DB_NAME)
         cur = conn.cursor()
         logs = cur.execute("SELECT kod, added_amount FROM last_upload_log").fetchall()
@@ -115,30 +140,34 @@ elif menu == "АДМИН":
                 cur.execute("UPDATE employees SET remaining_liters = remaining_liters - ?, total_liters = total_liters - ? WHERE kod = ?", (amt, amt, kod))
             cur.execute("DELETE FROM last_upload_log")
             conn.commit()
-            st.warning("Загрузка отменена. Лишние литры вычтены.")
-        else:
-            st.info("Нечего отменять.")
+            st.warning("Последняя загрузка отменена.")
         conn.close()
 
     st.divider()
     
-    uploaded_file = st.file_uploader("Загрузить новый месяц (.xlsx)", type=["xlsx"])
-    if uploaded_file and st.button("ОБНОВИТЬ И ПРИБАВИТЬ"):
+    # ЗАГРУЗКА
+    uploaded_file = st.file_uploader("Загрузить новый месяц", type=["xlsx"])
+    if uploaded_file and st.button("🚀 СФОРМИРОВАТЬ И ОБНОВИТЬ"):
         try:
-            excel_data = pd.ExcelFile(uploaded_file)
             conn = sqlite3.connect(DB_NAME)
+            # Архивируем текущую перед новой загрузкой
+            current_h = pd.read_sql("SELECT * FROM history", conn)
+            if not current_h.empty:
+                arch_name = f"Архив_от_{datetime.now().strftime('%d_%m_%Y')}"
+                conn.execute("INSERT INTO archives (filename, data, date) VALUES (?, ?, ?)", 
+                             (arch_name, current_h.to_json(), datetime.now().strftime("%Y-%m-%d %H:%M")))
+                conn.execute("DELETE FROM history")
+
+            excel_data = pd.ExcelFile(uploaded_file)
             cur = conn.cursor()
-            cur.execute("DELETE FROM last_upload_log") # Чистим старый лог отмены
-            
-            total_added = 0
+            cur.execute("DELETE FROM last_upload_log")
+            added = 0
             for sheet in excel_data.sheet_names:
                 df_raw = excel_data.parse(sheet)
                 h_idx = -1
                 for i in range(len(df_raw)):
                     row = [str(v).strip().lower() for v in df_raw.iloc[i].values]
-                    if 'сотрудник' in row and 'код' in row:
-                        h_idx = i; break
-                
+                    if 'сотрудник' in row and 'код' in row: h_idx = i; break
                 if h_idx != -1:
                     df = excel_data.parse(sheet, skiprows=h_idx + 1)
                     df.columns = [str(c).strip().lower() for c in df.columns]
@@ -157,13 +186,35 @@ elif menu == "АДМИН":
                         else:
                             cur.execute("INSERT INTO employees VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
                                         (clean_kod, str(fio), str(r.get('должность','-')), int(r.get('дней',0)), float(r.get('часов',0)), 0.0, new_lit, new_lit))
-                        
                         cur.execute("INSERT INTO last_upload_log VALUES (?, ?)", (clean_kod, new_lit))
-                        total_added += 1
-            
+                        added += 1
             conn.commit()
             conn.close()
-            st.success(f"Успешно! Добавлено {total_added} чел.")
-            st.balloons()
-        except Exception as e:
-            st.error(f"Ошибка: {e}")
+            st.success(f"Обновлено {added} чел. Текущая история ушла в архив.")
+            st.rerun()
+        except Exception as e: st.error(f"Ошибка: {e}")
+
+    st.divider()
+    
+    # ПОЛНОЕ УДАЛЕНИЕ
+    st.subheader("⚠️ ОПАСНАЯ ЗОНА")
+    if st.button("🗑️ ОЧИСТИТЬ ВСЮ БАЗУ (КАК НОВОЕ)"):
+        st.session_state['confirm_delete'] = True
+    
+    if st.session_state.get('confirm_delete'):
+        st.error("ВЫ УВЕРЕНЫ? Это удалит всех сотрудников, все остатки и все архивы!")
+        confirm = st.checkbox("Да, я подтверждаю полное удаление данных")
+        if st.button("ПОДТВЕРДИТЬ УНИЧТОЖЕНИЕ"):
+            if confirm:
+                conn = sqlite3.connect(DB_NAME)
+                conn.execute("DELETE FROM employees")
+                conn.execute("DELETE FROM history")
+                conn.execute("DELETE FROM last_upload_log")
+                conn.execute("DELETE FROM archives")
+                conn.commit()
+                conn.close()
+                st.session_state['confirm_delete'] = False
+                st.success("ПРИЛОЖЕНИЕ ОЧИЩЕНО!")
+                st.rerun()
+            else:
+                st.warning("Сначала поставьте галочку подтверждения")
