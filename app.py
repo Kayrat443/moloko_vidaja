@@ -1,153 +1,141 @@
 import streamlit as st
 import pandas as pd
+import sqlite3
 import os
-import cv2
-import numpy as np
-from datetime import datetime, timedelta
+from datetime import datetime
 
 # Настройка страницы
 st.set_page_config(page_title="MILK SYSTEM", layout="centered")
 
-# --- СТИЛИ (ТЫ МОЖЕШЬ МЕНЯТЬ ЦВЕТА ТУТ) ---
+# --- СТРОГИЙ ДИЗАЙН ДЛЯ ПЛАНШЕТА ---
 st.markdown("""
     <style>
-    [data-testid="stAppViewContainer"] { background-color: #FFFFFF !important; }
-    input { color: #000000 !important; background-color: #F8F9FA !important; }
-    
-    .result-card {
-        background-color: #FFFFFF !important;
-        padding: 20px;
-        border-radius: 12px;
-        border: 3px solid #000000;
-        margin-bottom: 20px;
+    [data-testid="stAppViewContainer"] { background-color: #ffffff !important; }
+    h1, h2, h3, p, span, label { color: #000000 !important; font-family: 'Arial', sans-serif; }
+    .stButton>button { 
+        background-color: #000000 !important; color: white !important; 
+        width: 100%; height: 3em; font-size: 20px; font-weight: bold; border-radius: 8px;
     }
-
-    .res-fio { color: #000000 !important; font-size: 28px !important; font-weight: bold; text-align: center; }
-    .res-val { color: #000000 !important; font-size: 44px !important; font-weight: 900; text-align: center; }
-    .res-label { color: #333333 !important; font-size: 18px; text-align: center; font-weight: bold; }
-    
-    .stButton>button {
-        background-color: #000000 !important;
-        color: #FFFFFF !important;
-        height: 3.5em;
-        font-weight: bold;
+    div[data-testid="stMetric"] { 
+        border: 2px solid #000000; padding: 15px; border-radius: 10px; text-align: center; 
     }
-
-    p, label, h1, h2, h3 { color: #000000 !important; }
+    div[data-testid="stMetricValue"] { color: #000000 !important; font-size: 40px !important; font-weight: 900 !important; }
+    div[data-testid="stMetricLabel"] { color: #555555 !important; font-size: 18px !important; }
     </style>
     """, unsafe_allow_html=True)
 
-# --- ЛОГИКА ДАННЫХ ---
-def load_db():
-    df = pd.read_excel('itog.xlsx')
-    if 'Остаток' not in df.columns:
-        df['Остаток'] = df['Литр']
-    return df
+# --- РАБОТА С БАЗОЙ ДАННЫХ (SQLite) ---
+DB_NAME = "milk_factory.db"
 
-def save_db(df):
-    df.to_excel('itog.xlsx', index=False)
+def init_db():
+    conn = sqlite3.connect(DB_NAME)
+    c = conn.cursor()
+    # Таблица сотрудников
+    c.execute('''CREATE TABLE IF NOT EXISTS employees 
+                 (kod TEXT PRIMARY KEY, fio TEXT, position TEXT, days INTEGER, total_liters REAL, remaining_liters REAL)''')
+    # Таблица истории выдач
+    c.execute('''CREATE TABLE IF NOT EXISTS history 
+                 (id INTEGER PRIMARY KEY AUTOINCREMENT, kod TEXT, fio TEXT, amount REAL, date TEXT)''')
+    conn.commit()
+    conn.close()
 
-def log_tx(id, name, qty):
-    log_file = 'history.csv'
-    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    entry = pd.DataFrame([[now, id, name, qty]], columns=['Время', 'ID', 'ФИО', 'Литры'])
-    entry.to_csv(log_file, mode='a', header=not os.path.exists(log_file), index=False)
+init_db()
 
-if 'db' not in st.session_state:
-    st.session_state.db = load_db()
+def get_db_connection():
+    return sqlite3.connect(DB_NAME)
 
-menu = st.sidebar.radio("НАВИГАЦИЯ", ["ВЫДАЧА", "РЕДАКТОР", "СТАТИСТИКА"])
+# --- МЕНЮ ---
+menu = st.sidebar.radio("МЕНЮ", ["ВЫДАЧА", "ОТЧЕТЫ", "АДМИН"])
 
 # --- 1. ВЫДАЧА ---
 if menu == "ВЫДАЧА":
-    st.title("🥛 Выдача молока")
-    img_file = st.camera_input("СКАНЕР")
-    scanned_id = None
-    if img_file:
-        file_bytes = np.asarray(bytearray(img_file.read()), dtype=np.uint8)
-        img = cv2.imdecode(file_bytes, 1)
-        data, _, _ = cv2.QRCodeDetector().detectAndDecode(img)
-        if data: scanned_id = data
-
-    user_id = st.text_input("Введите номер:", value=scanned_id if scanned_id else "")
+    st.markdown("<h1 style='text-align: center;'>🥛 ВЫДАЧА МОЛОКА</h1>", unsafe_allow_html=True)
     
-    if user_id:
-        db = st.session_state.db
-        user = db[db['Табельный_Молоко'].astype(str) == str(user_id)]
+    # Поле ввода (работает и со сканером, и вручную)
+    user_kod = st.text_input("ОТСКАНИРУЙТЕ QR ИЛИ ВВЕДИТЕ КОД", placeholder="Например: 6871")
+    
+    if user_kod:
+        conn = get_db_connection()
+        user = pd.read_sql(f"SELECT * FROM employees WHERE kod = '{user_kod}'", conn)
+        conn.close()
+        
         if not user.empty:
-            idx, row = user.index[0], user.loc[user.index[0]]
-            st.markdown(f"""
-                <div class="result-card">
-                    <div class="res-fio">{row['Сотрудник']}</div>
-                    <div style="display: flex; justify-content: space-around; margin-top: 20px;">
-                        <div><div class="res-label">НОРМА</div><div class="res-val">{row['Литр']} л</div></div>
-                        <div><div class="res-label">ОСТАТОК</div><div class="res-val">{row['Остаток']} л</div></div>
-                    </div>
-                </div>
-            """, unsafe_allow_html=True)
+            u = user.iloc[0]
+            st.markdown(f"<h2 style='text-align: center;'>{u['fio']}</h2>", unsafe_allow_html=True)
+            st.markdown(f"<p style='text-align: center;'>{u['position']} | Отработано: {u['days']} дн.</p>", unsafe_allow_html=True)
             
-            if row['Остаток'] > 0:
-                val = st.number_input("Кол-во к выдаче:", 0.5, float(row['Остаток']), step=0.5)
-                if st.button("ПОДТВЕРДИТЬ"):
-                    st.session_state.db.at[idx, 'Остаток'] -= val
-                    save_db(st.session_state.db)
-                    log_tx(row['Табельный_Молоко'], row['Сотрудник'], val)
+            col1, col2 = st.columns(2)
+            col1.metric("НОРМА", f"{u['total_liters']} л")
+            col2.metric("ОСТАТОК", f"{u['remaining_liters']} л")
+            
+            if u['remaining_liters'] > 0:
+                amount = st.number_input("Сколько литров выдать?", 0.5, float(u['remaining_liters']), step=0.5)
+                if st.button("ПОДТВЕРДИТЬ ВЫДАЧУ"):
+                    new_rem = u['remaining_liters'] - amount
+                    conn = get_db_connection()
+                    cur = conn.cursor()
+                    # Обновляем остаток
+                    cur.execute("UPDATE employees SET remaining_liters = ? WHERE kod = ?", (new_rem, user_kod))
+                    # Записываем в историю
+                    cur.execute("INSERT INTO history (kod, fio, amount, date) VALUES (?, ?, ?, ?)", 
+                                (user_kod, u['fio'], amount, datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
+                    conn.commit()
+                    conn.close()
+                    st.success(f"Выдано {amount} л. Остаток: {new_rem} л")
                     st.rerun()
-            else: st.error("БАЛАНС 0 ЛИТРОВ")
-        else: st.error("СОТРУДНИК НЕ НАЙДЕН")
-
-# --- 2. РЕДАКТОР ---
-elif menu == "РЕДАКТОР":
-    st.title("⚙️ Редактор")
-    t1, t2 = st.tabs(["Индивидуально", "Массово (Начислить всем)"])
-    with t1:
-        q = st.text_input("Поиск сотрудника")
-        if q:
-            res = st.session_state.db[st.session_state.db['Сотрудник'].str.contains(q, case=False) | (st.session_state.db['Табельный_Молоко'].astype(str) == q)]
-            for i, r in res.iterrows():
-                with st.expander(f"👤 {r['Сотрудник']}"):
-                    new_v = st.number_input("Остаток вручную", value=float(r['Остаток']), key=f"e{i}")
-                    if st.button("Сохранить", key=f"s{i}"):
-                        st.session_state.db.at[i, 'Остаток'] = new_v
-                        save_db(st.session_state.db)
-                        st.success("Обновлено")
-    with t2:
-        n = st.number_input("Установить всем лимит (л):", 10.0)
-        if st.button("ОБНОВИТЬ ВСЮ БАЗУ"):
-            st.session_state.db['Остаток'] = n
-            save_db(st.session_state.db)
-            st.success("Всем начислено")
-
-# --- 3. СТАТИСТИКА ---
-elif menu == "СТАТИСТИКА":
-    st.title("📊 Статистика")
-    if os.path.exists('history.csv'):
-        h = pd.read_csv('history.csv')
-        h['Время'] = pd.to_datetime(h['Время'])
-        
-        period = st.radio("Период:", ["Сегодня", "Неделя", "Месяц", "Выбрать дату"], horizontal=True)
-        today = datetime.now().date()
-        
-        if period == "Сегодня": h = h[h['Время'].dt.date == today]
-        elif period == "Неделя": h = h[h['Время'].dt.date >= (today - timedelta(days=7))]
-        elif period == "Месяц": h = h[h['Время'].dt.date >= (today - timedelta(days=30))]
-        elif period == "Выбрать дату":
-            rng = st.date_input("Диапазон дат:", [today, today])
-            if len(rng) == 2:
-                h = h[(h['Время'].dt.date >= rng[0]) & (h['Время'].dt.date <= rng[1])]
-        
-        st.metric("ИТОГО ВЫДАНО ЗА ПЕРИОД", f"{h['Литры'].sum()} л")
-        st.dataframe(h.sort_values(by='Время', ascending=False), use_container_width=True)
-
-        st.markdown("---")
-        st.subheader("⚠️ Опасная зона")
-        confirm = st.checkbox("Я уверен, что хочу очистить всю историю выдачи")
-        if st.button("ОЧИСТИТЬ СТАТИСТИКУ"):
-            if confirm:
-                os.remove('history.csv')
-                st.success("История удалена!")
-                st.rerun()
             else:
-                st.warning("Подтвердите удаление галочкой!")
+                st.error("ВЫДАЧА ЗАПРЕЩЕНА: ОСТАТОК 0")
+        else:
+            st.error("СОТРУДНИК НЕ НАЙДЕН В БАЗЕ")
+
+# --- 2. ОТЧЕТЫ ---
+elif menu == "ОТЧЕТЫ":
+    st.title("📊 История выдачи")
+    conn = get_db_connection()
+    hist_df = pd.read_sql("SELECT fio as 'ФИО', amount as 'Литры', date as 'Дата' FROM history ORDER BY id DESC", conn)
+    conn.close()
+    
+    if not hist_df.empty:
+        st.write(f"**Всего выдано за месяц:** {hist_df['Литры'].sum()} л")
+        st.dataframe(hist_df, use_container_width=True)
     else:
-        st.info("История пуста")
+        st.info("История пока пуста")
+
+# --- 3. АДМИН (ЗАГРУЗКА БАЗЫ) ---
+elif menu == "АДМИН":
+    st.title("⚙️ Администрирование")
+    
+    st.subheader("Обновление базы на новый месяц")
+    uploaded_file = st.file_uploader("Загрузите Excel-файл (колонки: Сотрудник, Код, Должность, Дней, Литр)", type=["xlsx"])
+    
+    if uploaded_file:
+        if st.button("ОБНУЛИТЬ СТАРУЮ БАЗУ И ЗАГРУЗИТЬ НОВУЮ"):
+            try:
+                df = pd.read_excel(uploaded_file)
+                # Чистим названия колонок от пробелов
+                df.columns = [c.strip() for c in df.columns]
+                
+                # Проверка нужных колонок
+                required = ['Сотрудник', 'Код', 'Должность', 'Дней', 'Литр']
+                if all(col in df.columns for col in required):
+                    conn = get_db_connection()
+                    cur = conn.cursor()
+                    # Удаляем старых сотрудников
+                    cur.execute("DELETE FROM employees")
+                    # Загружаем новых
+                    for _, row in df.iterrows():
+                        cur.execute("INSERT INTO employees (kod, fio, position, days, total_liters, remaining_liters) VALUES (?, ?, ?, ?, ?, ?)",
+                                    (str(row['Код']), row['Сотрудник'], row['Должность'], int(row['Дней']), float(row['Литр']), float(row['Литр'])))
+                    conn.commit()
+                    conn.close()
+                    st.success(f"Успешно загружено {len(df)} сотрудников!")
+                else:
+                    st.error(f"В файле нет нужных колонок! Нужно: {', '.join(required)}")
+            except Exception as e:
+                st.error(f"Ошибка при чтении файла: {e}")
+    
+    if st.checkbox("Показать список всех сотрудников в базе"):
+        conn = get_db_connection()
+        all_emp = pd.read_sql("SELECT * FROM employees", conn)
+        conn.close()
+        st.dataframe(all_emp)
